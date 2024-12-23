@@ -1,7 +1,7 @@
 import math
 import random
 import csv
-
+from operator import itemgetter
 
 # 数据处理，获得一张map，<user,movies>
 # 其中user表示用户，movies表示这个用户有过交互（评分行为）的所有电影集合
@@ -90,7 +90,7 @@ def UserSimilarityV1(train):
 # 记录物品到用户的倒排表，通过倒排表可以很清楚得算出所有的(N(u)&N(v)).len情况
 def UserSimilarityV2(train):
     # 创建物品到用户的倒排表
-    # item_users:<movie:[user1,user2,.....]>
+    # item_users: <movie:[user1,user2,.....]>
     item_users = dict()
     for u, items in train.items():
         for i in items:
@@ -118,38 +118,47 @@ def UserSimilarityV2(train):
     # 计算用户相似度矩阵W
     W = dict()
     for u, related_users in C.items():
-        W[u]=dict()
+        W[u] = dict()
         for v, cuv in related_users.items():
             W[u][v] = cuv / math.sqrt(N[u] * N[v])
     return W
 
 
 # UserCF 基于用户相似度推荐算法
-def Recommend(user, train, W):
+def Recommend(user, train, W, K):
     rank = dict()
     interacted_items = train[user]
-    for v, wuv in sorted(W[u].items, key=itemgetter(1), reverse=True)[0:K]:
-        for i, rvi in train[v].items:
+    # v:与user相似的用户
+    # wuv:相似度
+    for v, wuv in sorted(W[user].items(), key=itemgetter(1), reverse=True)[0:K]:
+        for i in train[v]:
             if i in interacted_items:
                 # we should filter items user interacted before
                 continue
-            rank[i] += wuv * rvi
+            # 与user相似的用户*该用户对该movie的兴趣度（这里为1）
+            if i not in rank:
+                rank[i]=0
+            rank[i] += wuv*1
     return rank
 
 
 def GetRecommendation(user, N):
-    return []
+    filePath = 'ml-latest-small/ratings.csv'
+    # 读取数据
+    data = GetData(filePath)
+    # print(len(data))
 
+    # 数据分组
+    train, test = SplitData(data, 3, 1, 42)
+    # print(len(train))
+    # print(len(test))
 
-filePath = 'ml-latest-small/ratings.csv'
-# 读取数据
-data = GetData(filePath)
-# print(len(data))
+    # 获取用户相似度矩阵W
+    W = UserSimilarityV2(train)
 
-# 数据分组
-train, test = SplitData(data, 3, 1, 42)
-# print(len(train))
-# print(len(test))
+    # 计算推荐给某用户的电影，top3
+    R = Recommend(user, train, W, 3)
+    RN=sorted(R.items(),key=itemgetter(1),reverse=True)[0:N]
+    return RN
 
-#获取用户相似度矩阵
-W=UserSimilarityV2(train)
+print(GetRecommendation("1",3))
