@@ -3,73 +3,95 @@ import random
 import csv
 from operator import itemgetter
 
-# 数据处理，获得一张map，<user,movies>
-# 其中user表示用户，movies表示这个用户有过交互（评分行为）的所有电影集合
+
+# 数据处理，获得一个数组，数组元素为[user,movie]
+# 其中user表示用户，movie表示这个用户有过交互（评分行为）的电影
 def GetData(filePath):
-    data = dict()
+    data = []
     with open(filePath, 'r') as file:
         reader = csv.reader(file)
         header = next(reader)  # 跳过标题
         for row in reader:
             userId = row[0]
             movieId = row[1]
-            if userId not in data:
-                data[userId] = set()
-            data[userId].add(movieId)
+            data.append([userId, movieId])
     return data
 
 
-# 取数据的1/M为测试组
+# 取数据的1/M为测试集
+# 对于同一个用户而言，测试集该用户的电影集和训练集不会有交集
+# 整个算法是在训练集中，推荐给该用户训练集下没有交互过的电影，判断这些电影和测试集的重合度来判别推荐算法的性能
+# 可以将训练集理解为历史数据，根据用户的历史交互数据给出推荐结果，测试集理解为用户的真实选择，将推荐结果与真实选择做对比
 def SplitData(data, M, k, seed):
-    test = dict()
-    train = dict()
+    test = []
+    train = []
     random.seed(seed)
-    for user, item in data.items():
+    for item in data:
         if random.randint(0, M) == k:
-            test[user] = item
+            test.append(item)
         else:
-            train[user] = item
+            train.append(item)
     return train, test
 
 
+# 将数据处理为map的形式,<user,movies>
+def DeelDataToMap(list):
+    map = dict()
+    for item in list:
+        userId = item[0]
+        movieId = item[1]
+        if userId not in map:
+            map[userId] = set()
+        map[userId].add(movieId)
+    return map
+
+
 # 召回率
-def Recall(train, test, N):
+def Recall(train, test, N, W):
     hit = 0
     all = 0
     for user in train.keys():
+        print(user)
         tu = test[user]
-        rank = GetRecommendation(user, N)
+        rank = GetRecommendation(user, N, W)
         for item, pui in rank:
             if item in tu:
                 hit += 1
         all += len(tu)
+    print(all)
+    print(hit)
     return hit / (all * 1.0)
 
 
 # 准确率
-def Precision(train, test, N):
+def Precision(train, test, N, W):
     hit = 0
     all = 0
     for user in train.keys():
         tu = test[user]
-        rank = GetRecommendation(user, N)
+        rank = GetRecommendation(user, N, W)
         for item, pui in rank:
             if item in tu:
                 hit += 1
         all += N
+    print(all)
+    print(hit)
     return hit / (all * 1.0)
 
 
 # 覆盖率
-def Coverage(train, test, N):
+def Coverage(test, N,W):
     recommend_items = set()
     all_items = set()
-    for user in train.keys():
-        for item in train[user].keys():
+    for user,items in test.items():
+        for item in items:
             all_items.add(item)
-        rank = GetRecommendation(user, N)
+        rank = GetRecommendation(user, N, W)
         for item, pui in rank:
-            recommend_items.add(item)
+            if item in all_items:
+                recommend_items.add(item)
+    print(len(all_items))
+    print(len(recommend_items))
     return len(recommend_items) / (len(all_items) * 1.0)
 
 
@@ -125,6 +147,7 @@ def UserSimilarityV2(train):
 
 
 # UserCF 基于用户相似度推荐算法
+# K:选K个与该用户相似的用户进行推荐加权计算
 def Recommend(user, train, W, K):
     rank = dict()
     interacted_items = train[user]
@@ -137,28 +160,36 @@ def Recommend(user, train, W, K):
                 continue
             # 与user相似的用户*该用户对该movie的兴趣度（这里为1）
             if i not in rank:
-                rank[i]=0
-            rank[i] += wuv*1
+                rank[i] = 0
+            rank[i] += wuv * 1
     return rank
 
 
-def GetRecommendation(user, N):
-    filePath = 'ml-latest-small/ratings.csv'
-    # 读取数据
-    data = GetData(filePath)
-    # print(len(data))
+filePath = 'ml-latest-small/ratings.csv'
 
-    # 数据分组
-    train, test = SplitData(data, 3, 1, 42)
-    # print(len(train))
-    # print(len(test))
+# 读取数据
+data = GetData(filePath)
+# print(len(data))
 
-    # 获取用户相似度矩阵W
-    W = UserSimilarityV2(train)
+# 数据分组
+trainList, testList = SplitData(data, 3, 1, 42)
+# print(len(trainList))
+# print(len(testList))
 
-    # 计算推荐给某用户的电影，top3
-    R = Recommend(user, train, W, 3)
-    RN=sorted(R.items(),key=itemgetter(1),reverse=True)[0:N]
-    return RN
+# 数据处理为map
+train = DeelDataToMap(trainList)
+test = DeelDataToMap(testList)
 
-print(GetRecommendation("1",3))
+# 获取用户相似度矩阵W
+W = UserSimilarityV2(train)
+
+
+def GetRecommendation(user, N, W):
+    # 计算推荐给某用户的电影，topN
+    r = Recommend(user, train, W, 80)
+    rn = sorted(r.items(), key=itemgetter(1), reverse=True)[0:N]
+
+    return rn
+
+
+print(Coverage(test, 10, W))
